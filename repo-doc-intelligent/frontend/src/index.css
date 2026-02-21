@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply font-sans antialiased bg-codeRepo-dark text-white;
+  }
+}
+
+/* Light theme: applied after utilities so they override Tailwind */
+html[data-theme="light"] body {
+  @apply bg-gray-50 text-gray-900;
+}
+html[data-theme="light"] .bg-codeRepo-dark {
+  @apply bg-gray-50;
+}
+html[data-theme="light"] .bg-codeRepo-bg,
+html[data-theme="light"] [class*="bg-codeRepo-bg"] {
+  @apply bg-white;
+}
+html[data-theme="light"] .bg-codeRepo-surface,
+html[data-theme="light"] .bg-codeRepo-surface\/80,
+html[data-theme="light"] [class*="bg-codeRepo-surface"] {
+  @apply bg-gray-100;
+}
+/* Clear, visible text in light mode */
+html[data-theme="light"] .text-white {
+  @apply text-gray-900;
+}
+html[data-theme="light"] .text-slate-400,
+html[data-theme="light"] .text-slate-300 {
+  @apply text-gray-800;
+}
+html[data-theme="light"] .text-slate-500 {
+  @apply text-gray-700;
+}
+html[data-theme="light"] .placeholder-slate-500 {
+  @apply placeholder-gray-600;
+}
+/* Dark borders for all boxes in light mode */
+html[data-theme="light"] .border-white\/5,
+html[data-theme="light"] .border-white\/10,
+html[data-theme="light"] .border-white\/15,
+html[data-theme="light"] [class*="border-white"] {
+  @apply border-gray-400;
+}
+/* Repo URL search box: stronger dark border in light mode */
+html[data-theme="light"] .repo-url-search-box {
+  border-width: 2px;
+  border-color: #6b7280;
+}
+html[data-theme="light"] .repo-url-search-box:hover {
+  border-color: #4b5563;
+}
+html[data-theme="light"] header {
+  background-color: #fff !important;
+  border-color: #9ca3af !important; /* dark border in light mode */
+}
+html[data-theme="light"] .hover\:bg-white\/10:hover {
+  @apply bg-gray-200;
+}
+html[data-theme="light"] .hover\:text-white:hover {
+  @apply text-gray-900;
+}
+html[data-theme="light"] .bg-white\/5 {
+  @apply bg-gray-100;
+}
+/* Main content / prose: clear dark text in light mode */
+html[data-theme="light"] .prose-invert {
+  @apply prose-slate;
+}
+html[data-theme="light"] .prose-invert h1,
+html[data-theme="light"] .prose-invert h2,
+html[data-theme="light"] .prose-invert h3,
+html[data-theme="light"] .prose-invert h4,
+html[data-theme="light"] .prose-invert p,
+html[data-theme="light"] .prose-invert li,
+html[data-theme="light"] .prose-invert strong,
+html[data-theme="light"] .prose-invert td,
+html[data-theme="light"] .prose-invert th {
+  @apply text-gray-900 !important;
+}
+html[data-theme="light"] .prose-invert code {
+  @apply text-gray-900 bg-gray-200 !important;
+}
+html[data-theme="light"] .prose-invert pre,
+html[data-theme="light"] .prose-invert pre code {
+  @apply text-gray-900 bg-gray-100 !important;
+}
+html[data-theme="light"] .prose-invert a {
+  @apply text-indigo-600 !important;
+}
+html[data-theme="light"] .prose-invert h2 {
+  border-bottom-color: #d1d5db;
+}

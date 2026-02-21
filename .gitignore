@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Storage (cloned repos, generated docs/PDFs)
+backend/storage/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Env
+.env
+.env.local
