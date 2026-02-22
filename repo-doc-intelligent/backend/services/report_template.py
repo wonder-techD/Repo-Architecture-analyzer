@@ -76,7 +76,7 @@ def build_architecture_wiki_markdown(
 ) -> str:
     """
     Build final CodeWiki-level Markdown from multi-pass LLM output and structured data.
-    Includes: Executive Summary (what the repo is, what it does, full context), Architecture Overview,
+    Includes: Executive Summary (deep explanation of the project in plain language—what it is, what it does, who it serves, how it works), Architecture Overview,
     Technology Stack, Architectural Pattern, Layer Breakdown, Call Flow, Entry Points,
     Core Orchestrators, Coupling Analysis, Scalability, Deployment Strategy, Recommendations.
     Mermaid: call flow, module dependency, layer.

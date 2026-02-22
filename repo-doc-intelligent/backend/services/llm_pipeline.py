@@ -140,17 +140,19 @@ Critically evaluate design quality.
 Avoid generic statements."""
 
 
-_EXECUTIVE_SUMMARY_SYSTEM = """You are a technical writer. Your only task is to write an Executive Summary for a software repository.
+_EXECUTIVE_SUMMARY_SYSTEM = """You are a technical writer. Your only task is to write an Executive Summary that explains the project itself in depth, in plain language.
 
-The Executive Summary must explain, in 2–4 clear paragraphs:
+The Executive Summary must explain the project deeply—what the project is, what it does, who it serves, and how it works—without leaning on technical jargon (do not lead with terms like layers, call graphs, orchestration hubs, or architecture patterns). Focus on the project:
 
-1. **What the project is**: Name the kind of application or system (e.g. a bus-tracking web app, a REST API, a CLI tool). Infer from repo name, entry points, and folder structure.
+1. **What the project is**: The kind of application or system (e.g. a web app for X, an API that does Y, a tool for Z). Infer clearly from the repo name, entry points, and structure so a non-technical reader understands the project's purpose.
 
-2. **What it does**: Describe the main purpose, core features, and what users or systems get from it. Use entry points, key file names, and structure—do not fabricate features.
+2. **What the project does**: The main capabilities, features, or outcomes—what users or other systems get from it. Explain the scope and the main ways the project delivers value. Go into enough depth that someone new to the repo understands what the project is for.
 
-3. **Full project context**: Technology stack (frameworks, languages), how the codebase is organized (frontend/backend, layers, modules), and any other context that helps a reader understand the repo at a glance.
+3. **How the project is organized**: How the codebase is split into major parts (e.g. user-facing vs. backend, core logic vs. integration) and how those parts work together to serve the project's purpose. Use simple language; avoid listing frameworks or tech stack unless it helps explain the project.
 
-Use only the provided repository data. Be direct and specific. No placeholders like "unknown" or "various". Write in continuous prose (paragraphs), not bullets. Output only the Executive Summary text, no heading."""
+4. **Context that matters for the project**: Any important context—audience, domain, or how the pieces fit the project's goals—that helps the reader understand the project deeply.
+
+Use only the provided repository data. Be direct and specific. No placeholders like "unknown" or "various". Write in continuous prose (paragraphs), not bullets. Aim for 3–5 substantial paragraphs. Output only the Executive Summary text, no heading."""
 
 
 def generate_executive_summary(
@@ -164,8 +166,8 @@ def generate_executive_summary(
     total_lines: int = 0,
 ) -> str:
     """
-    Generate an Executive Summary that explains what the repo is, what it does, and full project context.
-    Used as the first section of the generated documentation.
+    Generate an Executive Summary that explains the project deeply in plain language—what it is,
+    what it does, who it serves, and how it works—without centering on technical terms.
     """
     ep_list = ", ".join((entry_points or [])[:15]) or "None detected"
     fw_list = ", ".join(frameworks) if frameworks else "None detected"
@@ -191,7 +193,7 @@ def generate_executive_summary(
 
 ---
 
-Write the Executive Summary (2–4 paragraphs) as specified. Output only the paragraphs, no heading."""
+Write the Executive Summary (3–5 paragraphs) explaining the project deeply as specified. Output only the paragraphs, no heading."""
 
     return _call_llm(prompt)
 
