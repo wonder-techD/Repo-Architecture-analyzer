@@ -11,7 +11,7 @@ build/
 
 # Storage (cloned repos, generated docs/PDFs)
 # ignore the jobs storage directory (anchored to repo root)
-/repo-doc-intelligent/backend/storage/jobs/
+repo-doc-intelligent/backend/storage
 
 # IDE / OS
 .idea/
