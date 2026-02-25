@@ -10,7 +10,8 @@ build/
 *.egg-info/
 
 # Storage (cloned repos, generated docs/PDFs)
-backend/storage/
+# ignore the jobs storage directory (anchored to repo root)
+/repo-doc-intelligent/backend/storage/jobs/
 
 # IDE / OS
 .idea/
