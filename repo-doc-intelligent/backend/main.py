@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,30 +9,19 @@ from fastapi.responses import FileResponse
 import requests
 from config import STORAGE_DIR, JOBS_DIR, CORS_ORIGINS, OLLAMA_URL, OLLAMA_CHAT_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, RAG_TOP_K
 
-MASTER_RAG_SYSTEM_PROMPT = """You are a repository intelligence assistant.
+MASTER_RAG_SYSTEM_PROMPT = """You are an expert AI repository intelligence assistant.
+You answer questions about the analyzed repository using the provided repository context (architecture, modules, frameworks, call flows, symbols, and metadata).
 
-You answer questions ONLY about the analyzed repository using the provided context.
-
-Rules:
-
-1. Use ONLY the provided repository context.
-2. Do not use outside knowledge.
-3. Do not speculate.
-4. Do not fabricate file names, symbols, or frameworks.
-5. If the answer is not present in the context, respond exactly with:
-
-   "Not present in the provided repository context."
-
-6. If the user question is unrelated to the repository,
-   politely guide them to ask about repository architecture,
-   files, or execution flow.
-
-Use a friendly but precise tone.
-Keep responses technically clear and grounded."""
+Guidelines:
+1. Ground your answers primarily in the provided repository context and technical details.
+2. If the user asks about the architecture, tech stack, functionality, entry points, or file structure, synthesize a clear, helpful, and technically accurate explanation.
+3. If specific details are not explicitly described in the context, state what is known from the repository structure and mention what is not explicitly documented.
+4. Format your responses with clean Markdown (bullet points, code snippets, bold text) for readability.
+5. If the question is completely unrelated to software development or this repository, politely invite the user to ask about the codebase."""
 from schemas import AnalyzeRequest, AnalyzeResponse, ContentResponse, ContentMetadata, AskRequest, AskResponse, ErrorResponse
 from services.analyze_job import run_analyze_job
 from services.pdf_service import ensure_pdf
-from services.rag_vectors import load_vectors, get_embedding, retrieve_top_sections
+from services.rag_vectors import load_vectors, get_embedding, retrieve_top_sections, split_md_by_sections
 
 app = FastAPI(title="Repo Doc Intelligent API")
 
@@ -138,26 +128,17 @@ def download_pdf(job_id: str):
 
 
 _GREETING_PHRASES = {
-    "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "cool", "great", "help",
+    "hi", "hello", "hey", "greetings", "good morning", "good evening", "howdy",
 }
-
-_REPO_KEYWORDS = (
-    "repo", "repository", "code", "file", "function", "class",
-    "bootstrap", "entry", "call", "dependency", "architecture",
-    "framework", "tech stack", "module", "route", "controller",
-    "service", "component", "database",
-)
 
 
 def classify_intent(question: str) -> str:
-    """Return one of: 'greeting', 'repo', 'non_repo'."""
-    q = question.lower().strip()
-    if q in _GREETING_PHRASES:
-        return "greeting"
-    for kw in _REPO_KEYWORDS:
-        if kw in q:
-            return "repo"
-    return "non_repo"
+    """Return 'greeting' for plain greetings, otherwise treat as repo question."""
+    q = question.lower().strip().rstrip(".!?")
+    if q in _GREETING_PHRASES or any(q.startswith(g + " ") for g in _GREETING_PHRASES):
+        if len(q.split()) <= 4:
+            return "greeting"
+    return "repo"
 
 
 _TECH_STACK_KEYWORDS = (
@@ -199,17 +180,64 @@ def _get_metadata_context(job_dir: str) -> str:
     return "## Technology Stack (from repository metadata)\n\n" + "\n\n".join(parts)
 
 
+def _keyword_retrieve_sections(job_dir: str, question: str, top_k: int = 5) -> list[dict]:
+    doc_path = os.path.join(job_dir, "documentation.md")
+    if not os.path.isfile(doc_path):
+        return []
+    with open(doc_path, "r", encoding="utf-8", errors="replace") as f:
+        md = f.read()
+    sections = split_md_by_sections(md)
+    if not sections:
+        return [{"title": "Overview", "content": md[:4000]}]
+
+    stop_words = {
+        "the", "a", "an", "is", "in", "it", "of", "and", "or", "to", "for",
+        "with", "on", "at", "by", "this", "that", "how", "what", "where",
+        "when", "why", "which", "who", "can", "you", "does", "do", "tell", "me",
+    }
+    words = [w for w in re.findall(r"\w+", question.lower()) if len(w) > 2 and w not in stop_words]
+
+    scored = []
+    for s in sections:
+        title_lower = s["title"].lower()
+        content_lower = s["content"].lower()
+        title_matches = sum(title_lower.count(w) * 3 for w in words)
+        content_matches = sum(content_lower.count(w) for w in words)
+        score = title_matches + content_matches
+        scored.append((score, s))
+
+    scored.sort(key=lambda x: -x[0])
+    top = [s for score, s in scored[:top_k]]
+    return top
+
+
+def get_available_ollama_model() -> str:
+    """Return preferred model if available, else best installed model in Ollama."""
+    try:
+        base_url = OLLAMA_CHAT_URL.split("/api/")[0]
+        r = requests.get(f"{base_url}/api/tags", timeout=2)
+        if r.status_code == 200:
+            models = [m.get("name", "") for m in r.json().get("models", [])]
+            if OLLAMA_MODEL in models or any(m.startswith(OLLAMA_MODEL.split(":")[0]) for m in models):
+                return OLLAMA_MODEL
+            priority = ["qwen2.5-coder", "qwen2.5", "llama3", "llama3.2", "mistral", "gemma"]
+            for p in priority:
+                for m in models:
+                    if p in m:
+                        return m
+            if models:
+                return models[0]
+    except Exception:
+        pass
+    return OLLAMA_MODEL
+
+
 @app.post("/ask/{job_id}", response_model=AskResponse)
 def ask(job_id: str, body: AskRequest):
     intent = classify_intent(body.question)
     if intent == "greeting":
         return AskResponse(
-            answer="Hi! You can ask me about this repository's architecture, execution flow, dependencies, or specific files.",
-            sources=[],
-        )
-    if intent == "non_repo":
-        return AskResponse(
-            answer="I'm designed to answer questions about this analyzed repository. Please ask about its architecture, files, dependencies, or execution flow.",
+            answer="Hi! I am your repository assistant. Feel free to ask about this project's architecture, design patterns, dependencies, entry points, or implementation details.",
             sources=[],
         )
 
@@ -220,32 +248,29 @@ def ask(job_id: str, body: AskRequest):
     if not os.path.isfile(doc_path):
         raise HTTPException(status_code=404, detail="Documentation not found")
 
-    vectors = load_vectors(job_dir)
-    if not vectors:
-        raise HTTPException(
-            status_code=503,
-            detail="RAG not available for this job. Re-run analysis with Ollama and an embedding model (e.g. ollama pull nomic-embed-text).",
-        )
+    top = []
+    # 1. Try vector retrieval if vectors exist and embedding succeeds
+    try:
+        vectors = load_vectors(job_dir)
+        if vectors:
+            query_embedding = get_embedding(body.question)
+            if query_embedding:
+                top = retrieve_top_sections(vectors, query_embedding, top_k=min(RAG_TOP_K, 5))
+    except Exception:
+        top = []
 
-    query_embedding = get_embedding(body.question)
-    if not query_embedding:
-        raise HTTPException(
-            status_code=503,
-            detail="Could not embed question. Ensure Ollama is running and an embedding model is available (e.g. ollama pull nomic-embed-text).",
-        )
-
-    top = retrieve_top_sections(vectors, query_embedding, top_k=min(RAG_TOP_K, 5))
+    # 2. Fall back to keyword section retrieval
     if not top:
-        raise HTTPException(status_code=503, detail="No sections could be retrieved.")
+        top = _keyword_retrieve_sections(job_dir, body.question, top_k=min(RAG_TOP_K, 5))
 
     context_blocks = []
-    meta_ctx = _get_metadata_context(job_dir) if _is_tech_stack_question(body.question) else ""
-    if meta_ctx:
+    meta_ctx = _get_metadata_context(job_dir)
+    if meta_ctx and (_is_tech_stack_question(body.question) or len(top) < 3):
         context_blocks.append(meta_ctx)
     for s in top:
         context_blocks.append(f"## {s['title']}\n{s['content']}")
     context_text = "\n\n".join(context_blocks)
-    sources = (["Technology Stack (from repository metadata)"] if meta_ctx else []) + [s["title"] for s in top]
+    sources = (["Technology Stack (from repository metadata)"] if (meta_ctx and _is_tech_stack_question(body.question)) else []) + [s["title"] for s in top]
 
     question_with_context = f"""Repository context:
 
@@ -260,16 +285,18 @@ Question: {body.question}"""
         {"role": "user", "content": question_with_context},
     ]
 
+    selected_model = get_available_ollama_model()
+
     try:
         r = requests.post(
             OLLAMA_CHAT_URL,
-            json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
+            json={"model": selected_model, "messages": messages, "stream": False},
             timeout=OLLAMA_TIMEOUT,
         )
         r.raise_for_status()
         answer = (r.json().get("message", {}).get("content") or "").strip()
     except requests.ConnectionError:
-        raise HTTPException(status_code=503, detail="Ollama is not running. Start with: ollama serve && ollama pull qwen2.5-coder:7b")
+        raise HTTPException(status_code=503, detail="Ollama is not running. Please start Ollama with 'ollama serve'.")
     except requests.RequestException as e:
         raise HTTPException(status_code=503, detail=str(e))
     return AskResponse(answer=answer, sources=sources)

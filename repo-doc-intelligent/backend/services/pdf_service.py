@@ -1,7 +1,9 @@
 import os
 import re
+import shutil
 import subprocess
 import markdown
+
 
 
 REFERENCE_CSS = """
@@ -125,28 +127,32 @@ def _extract_mermaid_blocks(md_content: str) -> list:
 
 def _mmd_to_svg(job_dir: str, name: str) -> None:
     """
-    Render name.mmd -> name.svg using Mermaid CLI.
-    Raises RuntimeError if mmdc fails. Saves .mmd in job_dir.
+    Render name.mmd -> name.svg using Mermaid CLI if available locally.
+    Does not run slow npm downloads. Saves .mmd in job_dir.
     """
     mmd_path = os.path.join(job_dir, f"{name}.mmd")
     svg_path = os.path.join(job_dir, f"{name}.svg")
+    if os.path.isfile(svg_path):
+        return
     if not os.path.isfile(mmd_path):
-        raise RuntimeError(f"Mermaid source not found: {mmd_path}")
-    result = subprocess.run(
-        [
-            "npx", "-y", "@mermaid-js/mermaid-cli",
-            "mmdc", "-i", f"{name}.mmd", "-o", f"{name}.svg",
-            "-t", "neutral", "-b", "transparent", "--scale", "2", "-q",
-        ],
-        cwd=job_dir,
-        capture_output=True,
-        timeout=90,
-    )
-    if result.returncode != 0:
-        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"Mermaid CLI (mmdc) failed: {stderr or 'unknown error'}")
-    if not os.path.isfile(svg_path):
-        raise RuntimeError(f"SVG output not found after mmdc: {svg_path}")
+        return
+
+    mmdc_bin = shutil.which("mmdc")
+    if not mmdc_bin:
+        return
+
+    try:
+        subprocess.run(
+            [
+                mmdc_bin, "-i", f"{name}.mmd", "-o", f"{name}.svg",
+                "-t", "neutral", "-b", "transparent", "--scale", "2", "-q",
+            ],
+            cwd=job_dir,
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 
 def _read_svg_inline(svg_path: str) -> str:
@@ -158,10 +164,6 @@ def _read_svg_inline(svg_path: str) -> str:
 
 
 def _markdown_to_html_inline_svg(md_content: str, job_dir: str) -> str:
-    """
-    Extract each ```mermaid block, save as diagram_{i}.mmd, render to SVG via mmdc,
-    read SVG and inline embed into HTML. No raw Mermaid in output, no img tags.
-    """
     blocks = _extract_mermaid_blocks(md_content)
     if not blocks:
         html_body = markdown.markdown(md_content, extensions=["extra"])
@@ -173,8 +175,9 @@ def _markdown_to_html_inline_svg(md_content: str, job_dir: str) -> str:
         mmd_path = os.path.join(job_dir, f"{name}.mmd")
         svg_path = os.path.join(job_dir, f"{name}.svg")
         try:
-            with open(mmd_path, "w", encoding="utf-8") as f:
-                f.write(code.strip())
+            if not os.path.isfile(mmd_path):
+                with open(mmd_path, "w", encoding="utf-8") as f:
+                    f.write(code.strip())
             _mmd_to_svg(job_dir, name)
             svg_content = _read_svg_inline(svg_path)
             if svg_content:
@@ -183,15 +186,11 @@ def _markdown_to_html_inline_svg(md_content: str, job_dir: str) -> str:
                 )
             else:
                 inline_diagrams.append(
-                    '<div class="diagram-fallback">Diagram not available.</div>'
+                    f'<pre class="mermaid" style="text-align:center; margin: 20px 0;">{code.strip()}</pre>'
                 )
-        except RuntimeError:
+        except Exception:
             inline_diagrams.append(
-                '<div class="diagram-fallback">Diagram could not be rendered.</div>'
-            )
-        except OSError:
-            inline_diagrams.append(
-                '<div class="diagram-fallback">Diagram file error.</div>'
+                f'<pre class="mermaid" style="text-align:center; margin: 20px 0;">{code.strip()}</pre>'
             )
 
     placeholder_fmt = "INLINE_SVG_BLOCK_{}"
@@ -204,8 +203,8 @@ def _markdown_to_html_inline_svg(md_content: str, job_dir: str) -> str:
     html_body = markdown.markdown(new_md, extensions=["extra"])
     for i, div_html in enumerate(inline_diagrams):
         token = placeholder_fmt.format(i)
-        for pattern in (f"<p>{token}</p>", token):
-            html_body = html_body.replace(pattern, div_html, 1)
+        for pattern_str in (f"<p>{token}</p>", token):
+            html_body = html_body.replace(pattern_str, div_html, 1)
     return _wrap_html(html_body)
 
 
@@ -215,10 +214,14 @@ def _wrap_html(html_body: str) -> str:
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Codebase Documentation</title>
+  <title>Repository Architecture Documentation</title>
   <style>
 {REFERENCE_CSS}
   </style>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
+  </script>
 </head>
 <body>
   <div class="content">{html_body}</div>
@@ -227,7 +230,6 @@ def _wrap_html(html_body: str) -> str:
 
 
 def _markdown_to_html_legacy(md_content: str, job_dir: str) -> str:
-    """Single diagram.mmd -> diagram.svg, inline embed for PDF. Skip with message if mmdc fails or SVG missing."""
     html_body = markdown.markdown(md_content, extensions=["extra"])
     diagram_block = ""
     mmd_path = os.path.join(job_dir, "diagram.mmd")
@@ -239,15 +241,69 @@ def _markdown_to_html_legacy(md_content: str, job_dir: str) -> str:
             if svg_content:
                 diagram_block = f'<div class="diagram" style="text-align:center; margin: 20px 0;">{svg_content}</div>'
             else:
-                diagram_block = '<div class="diagram-fallback">Diagram not available.</div>'
-        except RuntimeError:
-            diagram_block = '<div class="diagram-fallback">Diagram could not be rendered.</div>'
+                with open(mmd_path, "r", encoding="utf-8", errors="replace") as f:
+                    diagram_block = f'<pre class="mermaid" style="text-align:center; margin: 20px 0;">{f.read().strip()}</pre>'
+        except Exception:
+            pass
     return _wrap_html(html_body + diagram_block)
+
+
+def _find_browser_executable() -> str | None:
+    custom_path = os.environ.get("CHROME_BIN") or os.environ.get("BROWSER_PATH")
+    if custom_path and os.path.isfile(custom_path):
+        return custom_path
+
+    for name in ["msedge", "chrome", "google-chrome", "chromium", "brave"]:
+        found = shutil.which(name)
+        if found:
+            return found
+
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _render_html_to_pdf_browser(browser_path: str, html_str: str, pdf_path: str, job_dir: str) -> bool:
+    temp_html = os.path.join(job_dir, "temp_print.html")
+    try:
+        with open(temp_html, "w", encoding="utf-8") as f:
+            f.write(html_str)
+        abs_html = os.path.abspath(temp_html)
+        abs_pdf = os.path.abspath(pdf_path)
+
+        cmd = [
+            browser_path,
+            "--headless=new",
+            "--disable-gpu",
+            "--no-pdf-header-footer",
+            "--run-all-compositor-stages-before-draw",
+            f"--print-to-pdf={abs_pdf}",
+            abs_html,
+        ]
+        subprocess.run(cmd, cwd=job_dir, capture_output=True, timeout=60)
+        return os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 0
+    except Exception:
+        return False
+    finally:
+        if os.path.isfile(temp_html):
+            try:
+                os.remove(temp_html)
+            except OSError:
+                pass
 
 
 def ensure_pdf(job_dir: str) -> None:
     pdf_path = os.path.join(job_dir, "final.pdf")
-    if os.path.isfile(pdf_path):
+    if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 0:
         return
     doc_path = os.path.join(job_dir, "documentation.md")
     if not os.path.isfile(doc_path):
@@ -258,12 +314,23 @@ def ensure_pdf(job_dir: str) -> None:
         html_str = _markdown_to_html_inline_svg(md_content, job_dir)
     else:
         html_str = _markdown_to_html_legacy(md_content, job_dir)
-    base_url = os.path.dirname(os.path.abspath(doc_path))
+
+    # 1. Primary: Use headless Chromium browser (Edge, Chrome, Chromium)
+    browser = _find_browser_executable()
+    if browser:
+        ok = _render_html_to_pdf_browser(browser, html_str, pdf_path, job_dir)
+        if ok and os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 0:
+            return
+
+    # 2. Secondary: Try WeasyPrint if available
     try:
         from weasyprint import HTML
-    except OSError as e:
-        raise RuntimeError(
-            "PDF generation requires WeasyPrint system libraries (Pango, GLib). "
-            "On macOS: brew install pango glib. See https://doc.courtbouillon.org/weasyprint/stable/first_steps.html"
-        ) from e
-    HTML(string=html_str, base_url=base_url).write_pdf(pdf_path)
+        base_url = os.path.dirname(os.path.abspath(doc_path))
+        HTML(string=html_str, base_url=base_url).write_pdf(pdf_path)
+        if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 0:
+            return
+    except Exception:
+        pass
+
+    if not os.path.isfile(pdf_path) or os.path.getsize(pdf_path) == 0:
+        raise RuntimeError("PDF generation failed: Headless browser (Edge/Chrome) or WeasyPrint not available.")

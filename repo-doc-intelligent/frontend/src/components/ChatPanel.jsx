@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, MessageCircle } from 'lucide-react'
 import axios from 'axios'
+import ReactMarkdown from 'react-markdown'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -50,13 +51,17 @@ export default function ChatPanel({ jobId, className = '' }) {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`rounded-lg px-3 py-2 text-sm ${
+            className={`rounded-lg px-3.5 py-2.5 text-sm leading-relaxed ${
               m.role === 'user'
-                ? 'bg-indigo-500/20 text-white ml-4'
-                : 'bg-white/5 text-slate-300 mr-4'
+                ? 'bg-indigo-500/20 text-white ml-4 whitespace-pre-wrap'
+                : 'bg-white/5 text-slate-200 mr-4 prose prose-invert prose-sm max-w-none [&_p]:my-1.5 [&_ul]:my-1.5 [&_li]:my-0.5 [&_pre]:my-2 [&_code]:text-indigo-300 [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded'
             }`}
           >
-            {m.content}
+            {m.role === 'user' ? (
+              m.content
+            ) : (
+              <ReactMarkdown>{m.content}</ReactMarkdown>
+            )}
           </div>
         ))}
         {loading && (
