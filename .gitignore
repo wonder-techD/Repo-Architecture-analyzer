@@ -8,6 +8,9 @@ env/
 dist/
 build/
 *.egg-info/
+__pycache__/
+*.py[cod]
+*.pyo
 
 # Storage (cloned repos, generated docs/PDFs)
 # ignore the jobs storage directory (anchored to repo root)
